@@ -170,24 +170,28 @@ async function baixarBackupDrive(silencioso = false) {
         const banco = await fileRes.json();
 
         // Atualiza localStorage e IndexedDB com os dados do Drive
-        if (banco.pacientes    && banco.pacientes.length > 0)     lsSet('agenda_pacientes',    banco.pacientes);
-        if (banco.agendamentos && banco.agendamentos.length >= 0)  lsSet('agenda_agendamentos', banco.agendamentos);
-        if (banco.tokens)                                           lsSet('agenda_tokens',       banco.tokens);
-        if (banco.config)                                           lsSet('agenda_config',       banco.config);
+        // ✅ CORREÇÃO: backup do desktop usa 'agenda_agendamentos' e 'agenda_tokens'
+        const _pacientes    = banco.pacientes    || [];
+        const _agendamentos = banco.agendamentos || banco.agenda_agendamentos || [];
+        const _tokens       = banco.tokens       || banco.agenda_tokens       || {};
+        const _config       = banco.config       || null;
+
+        if (_pacientes.length > 0)     lsSet('agenda_pacientes',    _pacientes);
+        if (_agendamentos.length >= 0) lsSet('agenda_agendamentos', _agendamentos);
+        if (_tokens)                   lsSet('agenda_tokens',       _tokens);
+        if (_config)                   lsSet('agenda_config',       _config);
 
         // Atualiza IndexedDB para uso offline
         try {
-            const ags = banco.agendamentos || [];
-            for (const ag of ags) await idbPut('agendamentos', ag);
-            const pacs = banco.pacientes || [];
-            for (const p of pacs) await idbPut('pacientes', p);
+            for (const ag of _agendamentos) await idbPut('agendamentos', ag);
+            for (const p  of _pacientes)    await idbPut('pacientes',    p);
         } catch(e) {}
 
         // Sempre atualiza S.pacientes, S.agendamentos e S.config na memória após download
         S.pacientes    = lsGet('agenda_pacientes',    []);
         S.agendamentos = lsGet('agenda_agendamentos', []);
         // ✅ CORREÇÃO: atualiza S.config na memória para que o PIN do Drive seja reconhecido
-        if (banco.config) S.config = { ...S.config, ...banco.config };
+        if (_config) S.config = { ...S.config, ..._config };
 
         if (silencioso) {
             const antesAgs = JSON.stringify(S.agendamentos);
