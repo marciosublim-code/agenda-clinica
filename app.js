@@ -48,6 +48,8 @@ let _driveUltimaModificacao   = null;
 
 // Inicia o fluxo OAuth — redireciona para o Google
 function conectarGoogleDriveMobile() {
+    // Salva de onde veio para voltar ao lugar certo após OAuth
+    lsSet('agenda_oauth_origem', 'login');
     const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
     const url = `https://accounts.google.com/o/oauth2/v2/auth`
         + `?client_id=${GOOGLE_CLIENT_ID}`
@@ -55,6 +57,85 @@ function conectarGoogleDriveMobile() {
         + `&response_type=token`
         + `&scope=${encodeURIComponent(SCOPES)}`;
     window.location.href = url;
+}
+
+// Botão de atalho dentro da agenda
+function conectarDriveAgenda() {
+    if (tokenValido()) {
+        // Já conectado: mostra status
+        toast('✅ Google Drive já conectado!');
+        return;
+    }
+    // Salva que estava na agenda e estava logado
+    lsSet('agenda_oauth_origem', 'agenda');
+    lsSet('agenda_oauth_estava_logado', true);
+    const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+    const url = `https://accounts.google.com/o/oauth2/v2/auth`
+        + `?client_id=${GOOGLE_CLIENT_ID}`
+        + `&redirect_uri=${redirectUri}`
+        + `&response_type=token`
+        + `&scope=${encodeURIComponent(SCOPES)}`;
+    window.location.href = url;
+}
+
+// Botão em Configurações: conecta ou desconecta
+function conectarOuDesconectarDrive() {
+    if (tokenValido()) {
+        if (!confirm('Desconectar o Google Drive?')) return;
+        S.googleToken = null;
+        S.fileIdDrive = null;
+        lsSet('agenda_google_token', null);
+        lsSet('agenda_google_token_exp', 0);
+        lsSet('agenda_drive_file_id', null);
+        atualizarStatusDrive();
+        toast('Google Drive desconectado.');
+        return;
+    }
+    lsSet('agenda_oauth_origem', 'config');
+    lsSet('agenda_oauth_estava_logado', true);
+    const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
+    const url = `https://accounts.google.com/o/oauth2/v2/auth`
+        + `?client_id=${GOOGLE_CLIENT_ID}`
+        + `&redirect_uri=${redirectUri}`
+        + `&response_type=token`
+        + `&scope=${encodeURIComponent(SCOPES)}`;
+    window.location.href = url;
+}
+
+// Atualiza visual dos botões de Drive em toda a interface
+function atualizarStatusDrive() {
+    const conectado = tokenValido();
+
+    // Botão no header da agenda
+    const btnAgenda = document.getElementById('btn-drive-agenda');
+    if (btnAgenda) {
+        btnAgenda.style.color = conectado ? '#34a853' : '';
+        btnAgenda.title = conectado ? 'Drive conectado ✓' : 'Conectar Google Drive';
+    }
+
+    // Botão em Configurações
+    const btnTexto = document.getElementById('btn-drive-texto');
+    const btnCfg   = document.getElementById('btn-drive-config');
+    if (btnTexto) btnTexto.textContent = conectado ? 'Drive conectado ✓ (toque para desconectar)' : 'Conectar com Google Drive';
+    if (btnCfg)   { btnCfg.style.background = conectado ? '#e8f5e9' : ''; btnCfg.style.color = conectado ? '#2e7d32' : ''; }
+
+    // Status text em Configurações
+    const statusEl = document.getElementById('status-drive');
+    if (statusEl) statusEl.textContent = conectado ? '✅ Sincronizado com Google Drive' : '';
+
+    // Botão na tela de login (compatibilidade)
+    const btnLogin = document.querySelector('.btn-google');
+    if (btnLogin) {
+        if (conectado) {
+            btnLogin.innerHTML = '<i class="fa-brands fa-google"></i> Google Drive sincronizado ✓';
+            btnLogin.style.background = '#e8f5e9';
+            btnLogin.style.color = '#2e7d32';
+        } else {
+            btnLogin.innerHTML = '<i class="fa-brands fa-google"></i> Sincronizar via Google Drive';
+            btnLogin.style.background = '';
+            btnLogin.style.color = '';
+        }
+    }
 }
 
 // Captura token OAuth que volta na URL após login Google
@@ -184,15 +265,13 @@ async function baixarBackupDrive(silencioso = false) {
         } catch(e) {}
 
         // Sempre atualiza S.pacientes e S.agendamentos na memória após download
+        // ✅ CORREÇÃO: sempre atualiza memória após download do Drive
         S.pacientes    = lsGet('agenda_pacientes',    []);
         S.agendamentos = lsGet('agenda_agendamentos', []);
 
         if (silencioso) {
-            const antesAgs = JSON.stringify(S.agendamentos);
-            if (JSON.stringify(S.agendamentos) !== antesAgs) {
-                renderizarAgenda();
-                toast('🔄 Agenda atualizada do Drive!');
-            }
+            // Re-renderiza agenda se houver mudanças
+            renderizarAgenda();
         } else {
             toast('✅ Dados sincronizados do Google Drive!');
             irTela('tela-login');
@@ -539,7 +618,12 @@ function irTela(id) {
         atualizarPinDisplay();
     }
 
+    if (id === 'tela-config') {
+        setTimeout(atualizarStatusDrive, 100);
+    }
+
     if (id === 'tela-agenda') {
+        setTimeout(atualizarStatusDrive, 100);
         // Polling leve: re-renderiza se localStorage mudar (ex: outra aba)
         window._pollingAgenda = setInterval(async () => {
             const antes = JSON.stringify(S.agendamentos);
@@ -582,11 +666,23 @@ async function pinEnter() {
     const pinCorreto = S.config.admin_pin || '1234';
     if (S.pin === pinCorreto) {
         S.adminPin = S.pin;
+        lsSet('agenda_admin_pin_session', S.pin); // salva para restaurar após OAuth
         S.pin = '';
         atualizarPinDisplay();
         await carregarTudo();
         irTela('tela-agenda');
+        atualizarStatusDrive();
         await renderizarAgenda();
+        // ✅ CORREÇÃO: após entrar, baixa Drive para garantir dados atualizados
+        if (tokenValido()) {
+            baixarBackupDrive(true).then(async (baixou) => {
+                if (baixou) {
+                    await carregarPacientes_ls();
+                    await carregarAgendamentos_ls();
+                    renderizarAgenda();
+                }
+            }).catch(() => {});
+        }
     } else {
         const display = $('pin-display') || document.querySelector('.pin-circles');
         const msgErro = $('login-erro');
@@ -1511,9 +1607,29 @@ document.addEventListener('DOMContentLoaded', async () => {
             history.replaceState(null, '', window.location.pathname);
             console.log('[Drive] Token OAuth recebido.');
             agendarRenovacaoToken();
-            irTela('tela-login');
-            verificarInstalacaoPWA();
-            setTimeout(() => baixarBackupDrive().then(() => iniciarPollingDrive()), 500);
+
+            const origem        = lsGet('agenda_oauth_origem', 'login');
+            const estavLogado   = lsGet('agenda_oauth_estava_logado', false);
+            lsSet('agenda_oauth_estava_logado', false);
+
+            // Baixa dados do Drive
+            await baixarBackupDrive(false);
+            await carregarPacientes_ls();
+            await carregarAgendamentos_ls();
+
+            if ((origem === 'agenda' || origem === 'config') && estavLogado) {
+                // Volta para onde estava sem pedir PIN de novo
+                S.adminPin = lsGet('agenda_admin_pin_session', null) || '____';
+                irTela(origem === 'config' ? 'tela-config' : 'tela-agenda');
+                await renderizarAgenda();
+                atualizarStatusDrive();
+                iniciarPollingDrive();
+                toast('✅ Google Drive conectado!');
+            } else {
+                irTela('tela-login');
+                verificarInstalacaoPWA();
+                iniciarPollingDrive();
+            }
             return;
         }
     }
@@ -1531,9 +1647,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             await carregarPacientes_ls();
             await carregarAgendamentos_ls();
             // Sincroniza com Drive em background (não bloqueia a tela de PIN)
-            baixarBackupDrive(true).then(() => {
-                // Após o download, garante que S.pacientes está atualizado
-                carregarPacientes_ls();
+            baixarBackupDrive(true).then(async () => {
+                // ✅ CORREÇÃO: após download, força atualização completa na memória
+                await carregarPacientes_ls();
+                await carregarAgendamentos_ls();
+                // Re-renderiza agenda se estiver aberta
+                const telaAgenda = document.getElementById('tela-agenda');
+                if (telaAgenda && telaAgenda.style.display !== 'none') {
+                    renderizarAgenda();
+                }
             }).catch(() => {});
             iniciarPollingDrive();
         }
