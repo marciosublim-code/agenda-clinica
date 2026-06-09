@@ -102,6 +102,9 @@
       <button class="icon-btn" id="btn-drive-agenda" onclick="conectarDriveAgenda()" title="Google Drive">
         <i class="fa-brands fa-google-drive"></i>
       </button>
+      <button class="icon-btn" id="btn-alternar-tema-agenda" onclick="alternarTemaAgenda()" title="Alternar tema">
+        <i class="fa-solid fa-palette"></i>
+      </button>
       <button class="btn-novo" onclick="abrirModalGerarLink()">
         <i class="fa-solid fa-link"></i> Link
       </button>
@@ -172,7 +175,7 @@
     <button onclick="irTela('tela-agenda')"><i class="fa-solid fa-calendar-week"></i> Agenda Semanal</button>
     <button onclick="abrirTelaPacientes()"><i class="fa-solid fa-users"></i> Pacientes</button>
     <button onclick="irTela('tela-config')"><i class="fa-solid fa-gear"></i> Configurações</button>
-    <button id="btn-alternar-tema-agenda" onclick="alternarTemaAgenda()" style="display:flex;align-items:center;gap:8px;">
+    <button onclick="alternarTemaAgenda()" style="display:flex;align-items:center;gap:8px;">
         <i class="fa-solid fa-palette"></i> Alternar Tema
     </button>
     <button onclick="logout()" class="btn-logout"><i class="fa-solid fa-right-from-bracket"></i> Sair</button>
