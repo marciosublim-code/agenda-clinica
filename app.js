@@ -1378,21 +1378,13 @@ async function iniciarTelaPaciente() {
     pacToken = t;
     irTela('tela-paciente');
 
-    // 1. Tenta buscar o token direto do GitHub (funciona sem autenticação)
-    let cfg = await _buscarTokenGithub(t);
-
-    // 2. Fallback: tenta pelo Drive se a psicóloga estiver autenticada
-    if (!cfg && tokenValido()) {
+    // Tenta buscar tokens do Drive para garantir dados atualizados
+    if (tokenValido()) {
         await baixarBackupDrive(true);
-        const tokens = carregarTokens_ls();
-        cfg = tokens[t] || null;
     }
 
-    // 3. Fallback: localStorage local (caso já tenha sido baixado antes)
-    if (!cfg) {
-        const tokens = carregarTokens_ls();
-        cfg = tokens[t] || null;
-    }
+    const tokens = carregarTokens_ls();
+    const cfg    = tokens[t];
 
     if (!cfg) { renderizarPacErro('Link inválido ou expirado.'); return; }
     if (cfg.usado) { renderizarPacErro('Este link já foi utilizado.'); return; }
@@ -1401,18 +1393,6 @@ async function iniciarTelaPaciente() {
     const subtituloEl = $('pac-subtitulo');
     if (subtituloEl) subtituloEl.textContent = `Olá, ${cfg.nomePaciente}! Confirme seu horário.`;
     renderizarPacGrade();
-}
-
-// Busca o token no GitHub raw (público, sem autenticação)
-async function _buscarTokenGithub(token) {
-    try {
-        const url = `https://raw.githubusercontent.com/marciosublim-code/agenda-clinica/main/tokens/${token}.json?nocache=${Date.now()}`;
-        const resp = await fetch(url);
-        if (!resp.ok) return null;
-        return await resp.json();
-    } catch(e) {
-        return null;
-    }
 }
 
 function renderizarPacGrade() {
@@ -1777,59 +1757,3 @@ document.addEventListener('DOMContentLoaded', async () => {
         verificarInstalacaoPWA();
     }
 });
-
-// ══════════════════════════════════════════════════════════════
-// PUSH AGENDAMENTO → GITHUB
-// O sistema local (Electron) lê esses arquivos e importa para o SQLite
-// ══════════════════════════════════════════════════════════════
-async function _pushAgendamentoGithub(agendamento, token) {
-    try {
-        // Lê o PAT do token que foi usado para gerar o link
-        // O token do GitHub fica em tokens/TOKEN.json → campo githubPAT
-        // Para não expor o PAT no JSON público, usamos um endpoint diferente:
-        // gravamos em agendamentos-pendentes/ag_xxx.json sem autenticação
-        // via um GitHub Action — mas a forma mais simples é o PAT já estar
-        // no arquivo do token (campo privado não exposto na UI pública)
-
-        // Busca o PAT salvo junto ao token no GitHub
-        const tokenUrl = `https://raw.githubusercontent.com/marciosublim-code/agenda-clinica/main/tokens/${token}.json?nocache=${Date.now()}`;
-        const tokenResp = await fetch(tokenUrl);
-        if (!tokenResp.ok) return;
-        const tokenDados = await tokenResp.json();
-        const pat = tokenDados._pat;
-        if (!pat) return; // PAT não estava no token, silencia
-
-        const conteudo = JSON.stringify(agendamento, null, 2);
-        const conteudoB64 = btoa(unescape(encodeURIComponent(conteudo)));
-
-        // Verifica SHA existente
-        let sha = null;
-        const checkResp = await fetch(
-            `https://api.github.com/repos/marciosublim-code/agenda-clinica/contents/agendamentos-pendentes/${agendamento.id}.json`,
-            { headers: { 'Authorization': `token ${pat}`, 'User-Agent': 'AgendaClinica' } }
-        );
-        if (checkResp.ok) {
-            const checkData = await checkResp.json();
-            sha = checkData.sha || null;
-        }
-
-        await fetch(
-            `https://api.github.com/repos/marciosublim-code/agenda-clinica/contents/agendamentos-pendentes/${agendamento.id}.json`,
-            {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `token ${pat}`,
-                    'User-Agent':    'AgendaClinica',
-                    'Content-Type':  'application/json'
-                },
-                body: JSON.stringify({
-                    message: `agendamento ${agendamento.id}`,
-                    content: conteudoB64,
-                    ...(sha ? { sha } : {})
-                })
-            }
-        );
-    } catch(e) {
-        console.warn('[GitHub] Erro ao publicar agendamento:', e);
-    }
-}
