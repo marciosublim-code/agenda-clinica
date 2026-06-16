@@ -1533,9 +1533,6 @@ async function confirmarConsulta() {
 
     await salvarAlteracoesNoDrive();
 
-    // Push do agendamento no GitHub para o sistema local importar
-    await _pushAgendamentoGithub(novo, pacToken);
-
     const corpo = $('pac-corpo');
     if (corpo) corpo.innerHTML = `
         <div class="pac-sucesso" style="text-align:center;padding:2rem 1rem;">
